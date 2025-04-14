@@ -6,20 +6,34 @@ import (
 )
 
 type Node interface {
+	// ID - any unique identifier for this node.
+	ID() string
+	// Connections - edges connected to this node that are accessible by the ants i.e. available next paths.
+	// If there are unidirectional edges of which this node is a destination - they should not be included here.
 	Connections() []Edge
 	// FitnessValue estimates how far from the final destination this node is.
 	// The lower this value is - the smaller the distance i.e. 0 when arrived.
-	FitnessValue() float64
+	//
+	// route - the route the ant has travelled so far.
+	FitnessValue(route []Edge) float64
 }
 
+// Edge can be bidirectional, so make sure you don't rely on From() To() meaning strictly "from" -> "to"
+// unless you ensure it in your implementation. Sometimes it will mean "from" <-> "to".
 type Edge interface {
+	// ID - any unique identifier for this edge.
 	ID() string
+	// From - where the path starts i.e. one of the nodes connected by this edge.
 	From() Node
+	// To - where the path ends i.e. one of the nodes connected by this edge.
 	To() Node
+	// Distance - a distance of this path that is visible to the ant.
 	Distance() float64
 }
 
 type Algorithm interface {
+	// FindOptimalRoute looks for the shortest route to the node with the minimum (closest to 0) FitnessValue.
+	// Returns the route (slice of paths) and the fitness value of the final node.
 	FindOptimalRoute(start Node) ([]Edge, float64)
 }
 
@@ -72,14 +86,14 @@ func (nw *nodeWrapper) Connections() []Edge {
 
 func (ew *edgeWrapper) From() Node {
 	if ew.fromWrapped == nil {
-		ew.fromWrapped = &nodeWrapper{Node: ew.From()}
+		ew.fromWrapped = &nodeWrapper{Node: ew.Edge.From()}
 	}
 	return ew.fromWrapped
 }
 
 func (ew *edgeWrapper) To() Node {
 	if ew.toWrapped == nil {
-		ew.toWrapped = &nodeWrapper{Node: ew.To()}
+		ew.toWrapped = &nodeWrapper{Node: ew.Edge.To()}
 	}
 	return ew.toWrapped
 }
@@ -126,13 +140,6 @@ func (a *algorithm) selectConnection(conns []Edge) Edge {
 	return conns[selectedI]
 }
 
-func (a *algorithm) takePath(antPosition Node, route []Edge) (Node, []Edge) {
-	selectedPath := a.selectConnection(antPosition.Connections())
-	route = append(route, selectedPath)
-	newPosition := selectedPath.To()
-	return newPosition, route
-}
-
 func (a *algorithm) depositPheromone(cost float64, route []Edge) {
 	p := a.conf.PheromoneDepositStrength
 	if cost > 0 {
@@ -165,7 +172,7 @@ func (a *algorithm) updatePheromone(activeEdges []Edge) {
 // route - a sequence of paths that represents a potential solution.
 func (a *algorithm) FindOptimalRoute(start Node) ([]Edge, float64) {
 	start = &nodeWrapper{Node: start}
-	startFv := start.FitnessValue()
+	startFv := start.FitnessValue([]Edge{})
 
 	var bestRoute []Edge
 	bestRouteFv := -1.0
@@ -188,8 +195,22 @@ func (a *algorithm) FindOptimalRoute(start Node) ([]Edge, float64) {
 					break
 				}
 
-				antPosition, route = a.takePath(antPosition, route)
-				routeFv = antPosition.FitnessValue()
+				conns := antPosition.Connections()
+				if len(conns) == 0 {
+					// got into an impasse of the graph - the ant is stuck.
+					break
+				}
+
+				selectedPath := a.selectConnection(conns)
+				route = append(route, selectedPath)
+
+				if selectedPath.To().ID() != antPosition.ID() {
+					antPosition = selectedPath.To()
+				} else {
+					antPosition = selectedPath.From()
+				}
+
+				routeFv = antPosition.FitnessValue(route)
 			}
 
 			a.depositPheromone(routeFv, route)
