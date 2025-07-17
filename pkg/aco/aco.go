@@ -37,6 +37,12 @@ type Algorithm interface {
 	FindOptimalRoute(start Node) ([]Edge, float64)
 }
 
+type NodeWrapper interface {
+	// Unwrap allows clients to get the inner specific implementation of the Node after the ACO algorithm completes.
+	// WARNING: do not use unwrapped node with any ACO lib functions.
+	Unwrap() Node
+}
+
 type nodeWrapper struct {
 	Node
 	connectionsWrapped []Edge
@@ -82,6 +88,10 @@ func (nw *nodeWrapper) Connections() []Edge {
 
 	nw.connectionsWrapped = wrapped
 	return wrapped
+}
+
+func (nw *nodeWrapper) Unwrap() Node {
+	return nw.Node
 }
 
 func (ew *edgeWrapper) From() Node {
